@@ -36,10 +36,10 @@ for ip in raw_ips:
 all_ips.update(resolved_ips)
 
 # Write outputs
-with open("output/ip-feed.txt", "w") as f:
+with open("ip-feed.txt", "w") as f:
     for ip in sorted(all_ips):
         f.write(ip + "\n")
 
-with open("output/fqdn-feed.txt", "w") as f:
+with open("fqdn-feed.txt", "w") as f:
     for d in sorted(set(domains)):
         f.write(d + "\n")
