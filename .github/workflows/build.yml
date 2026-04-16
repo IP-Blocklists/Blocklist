@@ -2,8 +2,11 @@ name: Build Threat Feed
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "0 * * * *"   # hourly (more reliable than */15)
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
