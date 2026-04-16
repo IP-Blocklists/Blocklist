@@ -2,7 +2,7 @@ name: Build Threat Feed
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # every 15 minutes
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -11,20 +11,20 @@ jobs:
 
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
-    - name: Run script
+    - name: Run build script
       run: python scripts/build_feed.py
 
-    - name: Commit updated feeds
+    - name: Commit changes
       run: |
-        git config user.name "bot"
-        git config user.email "bot@example.com"
-        git add output/*
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add ip-feed.txt fqdn-feed.txt
         git commit -m "Update feeds" || echo "No changes"
         git push
