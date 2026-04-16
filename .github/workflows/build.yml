@@ -1,1 +1,30 @@
+name: Build Threat Feed
 
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Run script
+      run: python scripts/build_feed.py
+
+    - name: Commit updated feeds
+      run: |
+        git config user.name "bot"
+        git config user.email "bot@example.com"
+        git add output/*
+        git commit -m "Update feeds" || echo "No changes"
+        git push
