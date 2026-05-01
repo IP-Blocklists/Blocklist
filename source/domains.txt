@@ -1,3 +1,5 @@
 www.bbc.co.uk
 bbc.co.uk
 www.rte.ie
+www.bbc.com
+bbc.com
