@@ -2,9 +2,8 @@ import ipaddress
 import dns.resolver
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Leave as None to use GitHub runner's external DNS.
 DNS_SERVERS = None
-# Example custom DNS:
+# Optional custom DNS:
 # DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
 
 MAX_WORKERS = 20
@@ -56,90 +55,58 @@ def make_resolver():
 def resolve_domain(domain):
     resolver = make_resolver()
     found_ips = set()
-    original_domain = domain.strip().rstrip(".")
+    cname_chain = []
 
-    print(f"Resolving: {original_domain}")
-
-    # First try direct A lookup.
-    # dnspython normally follows CNAMEs automatically here.
     try:
-        answers = resolver.resolve(
-            original_domain,
-            "A",
-            raise_on_no_answer=False
-        )
+        current = domain.rstrip(".")
 
-        if answers.canonical_name:
-            print(f"Canonical name for {original_domain}: {answers.canonical_name}")
+        # Follow CNAME chain up to 10 hops
+        for _ in range(10):
+            try:
+                cname_answers = resolver.resolve(current, "CNAME")
+                cname = str(cname_answers[0].target).rstrip(".")
+                cname_chain.append(f"{current} -> {cname}")
+                current = cname
+            except dns.resolver.NoAnswer:
+                break
+            except dns.resolver.NXDOMAIN:
+                print(f"NXDOMAIN: {domain}")
+                return set()
+            except Exception:
+                break
 
-        for rdata in answers:
-            ip = rdata.to_text()
-            print(f"A record: {original_domain} -> {ip}")
+        # Resolve IPv4 A records
+        try:
+            answers = resolver.resolve(current, "A")
+            for rdata in answers:
+                ip = rdata.to_text()
+                if is_public_ip(ip):
+                    found_ips.add(ip)
+        except Exception:
+            pass
 
-            if is_public_ip(ip):
-                found_ips.add(ip)
+        # Optional IPv6 AAAA records
+        # Uncomment if you want IPv6 in the feed
+        # try:
+        #     answers = resolver.resolve(current, "AAAA")
+        #     for rdata in answers:
+        #         ip = rdata.to_text()
+        #         if is_public_ip(ip):
+        #             found_ips.add(ip)
+        # except Exception:
+        #     pass
 
-        if found_ips:
-            return found_ips
+        if cname_chain:
+            print(f"CNAME chain for {domain}: {' | '.join(cname_chain)}")
+
+        if not found_ips:
+            print(f"No public IPs found for {domain}")
+
+        return found_ips
 
     except Exception as e:
-        print(f"Direct A lookup failed for {original_domain}: {e}")
-
-    # Fallback: manually follow CNAME chain.
-    current = original_domain
-
-    for _ in range(10):
-        try:
-            cname_answers = resolver.resolve(
-                current,
-                "CNAME",
-                raise_on_no_answer=False
-            )
-
-            cname_found = False
-
-            for rdata in cname_answers:
-                cname_target = str(rdata.target).rstrip(".")
-                print(f"CNAME: {current} -> {cname_target}")
-                current = cname_target
-                cname_found = True
-                break
-
-            if not cname_found:
-                break
-
-            try:
-                a_answers = resolver.resolve(
-                    current,
-                    "A",
-                    raise_on_no_answer=False
-                )
-
-                for rdata in a_answers:
-                    ip = rdata.to_text()
-                    print(f"A record: {current} -> {ip}")
-
-                    if is_public_ip(ip):
-                        found_ips.add(ip)
-
-                if found_ips:
-                    return found_ips
-
-            except Exception as e:
-                print(f"A lookup failed for CNAME target {current}: {e}")
-
-        except dns.resolver.NXDOMAIN:
-            print(f"NXDOMAIN: {current}")
-            return set()
-
-        except Exception as e:
-            print(f"CNAME lookup failed for {current}: {e}")
-            break
-
-    if not found_ips:
-        print(f"No public IPs found for {original_domain}")
-
-    return found_ips
+        print(f"Failed to resolve {domain}: {e}")
+        return set()
 
 
 # -------------------------
@@ -169,27 +136,26 @@ with open("ip-feed.txt", "w") as f:
 # 2. RESOLVE DOMAINS → IPs
 # -------------------------
 resolved_ips = set()
-domains_to_resolve = []
-
-for domain in domains:
-    if domain.startswith("*."):
-        print(f"Wildcard skipped, cannot DNS-resolve directly: {domain}")
-    else:
-        domains_to_resolve.append(domain)
 
 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
     futures = {
         executor.submit(resolve_domain, domain): domain
-        for domain in domains_to_resolve
+        for domain in domains
+        if not domain.startswith("*.")
     }
 
     for future in as_completed(futures):
         domain = futures[future]
-
         try:
             resolved_ips.update(future.result())
         except Exception as e:
             print(f"Failed processing {domain}: {e}")
+
+
+# Log wildcard domains but do not resolve them
+for domain in domains:
+    if domain.startswith("*."):
+        print(f"Wildcard skipped, cannot DNS-resolve directly: {domain}")
 
 
 with open("fqdn-feed.txt", "w") as f:
