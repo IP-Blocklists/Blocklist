@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Optional custom DNS servers.
 # Leave as None to use GitHub runner's external DNS.
-DNS_SERVERS = None
+DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
 # Example:
 # DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
 
