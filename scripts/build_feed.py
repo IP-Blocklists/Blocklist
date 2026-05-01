@@ -57,44 +57,78 @@ def make_resolver():
 def resolve_domain(domain):
     resolver = make_resolver()
     found_ips = set()
-    domain = domain.rstrip(".")
+    original_domain = domain.strip().rstrip(".")
 
+    print(f"Resolving: {original_domain}")
+
+    # First try direct A lookup.
+    # This normally follows CNAMEs automatically.
     try:
-        current = domain
+        answers = resolver.resolve(original_domain, "A", raise_on_no_answer=False)
 
-        # Follow CNAME chain manually, up to 10 hops
-        for _ in range(10):
-            try:
-                cname_answers = resolver.resolve(current, "CNAME")
-                cname_target = str(cname_answers[0].target).rstrip(".")
-                print(f"CNAME: {current} -> {cname_target}")
-                current = cname_target
-            except dns.resolver.NoAnswer:
-                break
-            except dns.resolver.NXDOMAIN:
-                print(f"NXDOMAIN: {current}")
-                return set()
-            except Exception:
-                break
+        if answers.canonical_name:
+            print(f"Canonical name for {original_domain}: {answers.canonical_name}")
 
-        # Resolve final hostname to A records
-        try:
-            answers = resolver.resolve(current, "A")
-            for rdata in answers:
-                ip = rdata.to_text()
-                if is_public_ip(ip):
-                    found_ips.add(ip)
-        except Exception as e:
-            print(f"No A records for {current}: {e}")
+        for rdata in answers:
+            ip = rdata.to_text()
+            print(f"A record: {original_domain} -> {ip}")
 
-        if not found_ips:
-            print(f"No public IPs found for {domain}")
+            if is_public_ip(ip):
+                found_ips.add(ip)
 
-        return found_ips
+        if found_ips:
+            return found_ips
 
     except Exception as e:
-        print(f"Failed to resolve {domain}: {e}")
-        return set()
+        print(f"Direct A lookup failed for {original_domain}: {e}")
+
+    # If direct A lookup failed, manually follow CNAMEs.
+    current = original_domain
+
+    for _ in range(10):
+        try:
+            cname_answers = resolver.resolve(current, "CNAME", raise_on_no_answer=False)
+
+            cname_found = False
+
+            for rdata in cname_answers:
+                cname_target = str(rdata.target).rstrip(".")
+                print(f"CNAME: {current} -> {cname_target}")
+                current = cname_target
+                cname_found = True
+                break
+
+            if not cname_found:
+                break
+
+            try:
+                a_answers = resolver.resolve(current, "A", raise_on_no_answer=False)
+
+                for rdata in a_answers:
+                    ip = rdata.to_text()
+                    print(f"A record: {current} -> {ip}")
+
+                    if is_public_ip(ip):
+                        found_ips.add(ip)
+
+                if found_ips:
+                    return found_ips
+
+            except Exception as e:
+                print(f"A lookup failed for CNAME target {current}: {e}")
+
+        except dns.resolver.NXDOMAIN:
+            print(f"NXDOMAIN: {current}")
+            return set()
+
+        except Exception as e:
+            print(f"CNAME lookup failed for {current}: {e}")
+            break
+
+    if not found_ips:
+        print(f"No public IPs found for {original_domain}")
+
+    return found_ips
 
 # -------------------------
 # Load inputs
