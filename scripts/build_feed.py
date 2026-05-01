@@ -60,32 +60,41 @@ def resolve_domain(domain):
     domain = domain.rstrip(".")
 
     try:
-        # Resolve A records directly.
-        # dnspython follows CNAMEs automatically when resolving A records.
-        answers = resolver.resolve(domain, "A")
+        current = domain
 
-        for rdata in answers:
-            ip = rdata.to_text()
-            if is_public_ip(ip):
-                found_ips.add(ip)
+        # Follow CNAME chain manually, up to 10 hops
+        for _ in range(10):
+            try:
+                cname_answers = resolver.resolve(current, "CNAME")
+                cname_target = str(cname_answers[0].target).rstrip(".")
+                print(f"CNAME: {current} -> {cname_target}")
+                current = cname_target
+            except dns.resolver.NoAnswer:
+                break
+            except dns.resolver.NXDOMAIN:
+                print(f"NXDOMAIN: {current}")
+                return set()
+            except Exception:
+                break
+
+        # Resolve final hostname to A records
+        try:
+            answers = resolver.resolve(current, "A")
+            for rdata in answers:
+                ip = rdata.to_text()
+                if is_public_ip(ip):
+                    found_ips.add(ip)
+        except Exception as e:
+            print(f"No A records for {current}: {e}")
 
         if not found_ips:
             print(f"No public IPs found for {domain}")
 
         return found_ips
 
-    except dns.resolver.NXDOMAIN:
-        print(f"NXDOMAIN: {domain}")
-        return set()
-
-    except dns.resolver.NoAnswer:
-        print(f"No A record answer for {domain}")
-        return set()
-
     except Exception as e:
         print(f"Failed to resolve {domain}: {e}")
         return set()
-
 
 # -------------------------
 # Load inputs
