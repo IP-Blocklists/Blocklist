@@ -2,8 +2,10 @@ import ipaddress
 import dns.resolver
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Optional custom DNS servers.
+# Leave as None to use GitHub runner's external DNS.
 DNS_SERVERS = None
-# Optional custom DNS:
+# Example:
 # DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
 
 MAX_WORKERS = 20
@@ -55,54 +57,30 @@ def make_resolver():
 def resolve_domain(domain):
     resolver = make_resolver()
     found_ips = set()
-    cname_chain = []
+    domain = domain.rstrip(".")
 
     try:
-        current = domain.rstrip(".")
+        # Resolve A records directly.
+        # dnspython follows CNAMEs automatically when resolving A records.
+        answers = resolver.resolve(domain, "A")
 
-        # Follow CNAME chain up to 10 hops
-        for _ in range(10):
-            try:
-                cname_answers = resolver.resolve(current, "CNAME")
-                cname = str(cname_answers[0].target).rstrip(".")
-                cname_chain.append(f"{current} -> {cname}")
-                current = cname
-            except dns.resolver.NoAnswer:
-                break
-            except dns.resolver.NXDOMAIN:
-                print(f"NXDOMAIN: {domain}")
-                return set()
-            except Exception:
-                break
-
-        # Resolve IPv4 A records
-        try:
-            answers = resolver.resolve(current, "A")
-            for rdata in answers:
-                ip = rdata.to_text()
-                if is_public_ip(ip):
-                    found_ips.add(ip)
-        except Exception:
-            pass
-
-        # Optional IPv6 AAAA records
-        # Uncomment if you want IPv6 in the feed
-        # try:
-        #     answers = resolver.resolve(current, "AAAA")
-        #     for rdata in answers:
-        #         ip = rdata.to_text()
-        #         if is_public_ip(ip):
-        #             found_ips.add(ip)
-        # except Exception:
-        #     pass
-
-        if cname_chain:
-            print(f"CNAME chain for {domain}: {' | '.join(cname_chain)}")
+        for rdata in answers:
+            ip = rdata.to_text()
+            if is_public_ip(ip):
+                found_ips.add(ip)
 
         if not found_ips:
             print(f"No public IPs found for {domain}")
 
         return found_ips
+
+    except dns.resolver.NXDOMAIN:
+        print(f"NXDOMAIN: {domain}")
+        return set()
+
+    except dns.resolver.NoAnswer:
+        print(f"No A record answer for {domain}")
+        return set()
 
     except Exception as e:
         print(f"Failed to resolve {domain}: {e}")
@@ -137,11 +115,18 @@ with open("ip-feed.txt", "w") as f:
 # -------------------------
 resolved_ips = set()
 
+domains_to_resolve = []
+
+for domain in domains:
+    if domain.startswith("*."):
+        print(f"Wildcard skipped, cannot DNS-resolve directly: {domain}")
+    else:
+        domains_to_resolve.append(domain)
+
 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
     futures = {
         executor.submit(resolve_domain, domain): domain
-        for domain in domains
-        if not domain.startswith("*.")
+        for domain in domains_to_resolve
     }
 
     for future in as_completed(futures):
@@ -150,12 +135,6 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             resolved_ips.update(future.result())
         except Exception as e:
             print(f"Failed processing {domain}: {e}")
-
-
-# Log wildcard domains but do not resolve them
-for domain in domains:
-    if domain.startswith("*."):
-        print(f"Wildcard skipped, cannot DNS-resolve directly: {domain}")
 
 
 with open("fqdn-feed.txt", "w") as f:
