@@ -2,10 +2,9 @@ import ipaddress
 import dns.resolver
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Optional custom DNS servers.
 # Leave as None to use GitHub runner's external DNS.
 DNS_SERVERS = None
-# Example:
+# Example custom DNS:
 # DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
 
 MAX_WORKERS = 20
@@ -62,9 +61,13 @@ def resolve_domain(domain):
     print(f"Resolving: {original_domain}")
 
     # First try direct A lookup.
-    # This normally follows CNAMEs automatically.
+    # dnspython normally follows CNAMEs automatically here.
     try:
-        answers = resolver.resolve(original_domain, "A", raise_on_no_answer=False)
+        answers = resolver.resolve(
+            original_domain,
+            "A",
+            raise_on_no_answer=False
+        )
 
         if answers.canonical_name:
             print(f"Canonical name for {original_domain}: {answers.canonical_name}")
@@ -82,12 +85,16 @@ def resolve_domain(domain):
     except Exception as e:
         print(f"Direct A lookup failed for {original_domain}: {e}")
 
-    # If direct A lookup failed, manually follow CNAMEs.
+    # Fallback: manually follow CNAME chain.
     current = original_domain
 
     for _ in range(10):
         try:
-            cname_answers = resolver.resolve(current, "CNAME", raise_on_no_answer=False)
+            cname_answers = resolver.resolve(
+                current,
+                "CNAME",
+                raise_on_no_answer=False
+            )
 
             cname_found = False
 
@@ -102,7 +109,11 @@ def resolve_domain(domain):
                 break
 
             try:
-                a_answers = resolver.resolve(current, "A", raise_on_no_answer=False)
+                a_answers = resolver.resolve(
+                    current,
+                    "A",
+                    raise_on_no_answer=False
+                )
 
                 for rdata in a_answers:
                     ip = rdata.to_text()
@@ -129,6 +140,7 @@ def resolve_domain(domain):
         print(f"No public IPs found for {original_domain}")
 
     return found_ips
+
 
 # -------------------------
 # Load inputs
@@ -157,7 +169,6 @@ with open("ip-feed.txt", "w") as f:
 # 2. RESOLVE DOMAINS → IPs
 # -------------------------
 resolved_ips = set()
-
 domains_to_resolve = []
 
 for domain in domains:
@@ -174,6 +185,7 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
 
     for future in as_completed(futures):
         domain = futures[future]
+
         try:
             resolved_ips.update(future.result())
         except Exception as e:
